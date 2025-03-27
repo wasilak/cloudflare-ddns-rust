@@ -1,5 +1,7 @@
-use super::routes::{get_record_handler, list_handler, root_handler, upsert_record_handler};
-use axum::{Router, routing::get, routing::post};
+use super::routes::{
+    delete_record_handler, get_record_handler, list_handler, root_handler, upsert_record_handler,
+};
+use axum::{Router, routing::delete, routing::get, routing::post};
 use tower_http::trace::{DefaultOnRequest, TraceLayer};
 // use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse};
 use tracing::Level;
@@ -15,6 +17,7 @@ impl Server {
             .route("/{zone_name}", get(list_handler))
             .route("/{zone_name}/{record}", get(get_record_handler))
             .route("/{zone_name}/{record}", post(upsert_record_handler))
+            .route("/{zone_name}/{record}", delete(delete_record_handler))
             .layer(
                 TraceLayer::new_for_http()
                     // .make_span_with(DefaultMakeSpan::new().level(Level::INFO)) // to verbose, for now

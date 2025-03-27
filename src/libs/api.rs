@@ -12,10 +12,19 @@ pub fn get_api_client() -> &'static AsyncClient {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct DnsRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxied: Option<bool>,
 }
 
 pub async fn init_cf(
@@ -74,6 +83,45 @@ pub async fn get_record(
         }
         Err(e) => {
             tracing::error!("Failed to list records: {}", e);
+            return Err(e);
+        }
+    }
+}
+
+pub async fn create_record(
+    zone_id: String,
+    record: DnsRecord,
+) -> Result<DnsRecord, Box<dyn std::error::Error>> {
+    match crate::libs::cf::create_record(&get_api_client(), zone_id, record).await {
+        Ok(record) => return Ok(record),
+        Err(e) => {
+            tracing::error!("Failed to create record: {}", e);
+            return Err(e);
+        }
+    }
+}
+
+pub async fn update_record(
+    zone_id: String,
+    record: DnsRecord,
+) -> Result<DnsRecord, Box<dyn std::error::Error>> {
+    match crate::libs::cf::update_record(&get_api_client(), zone_id, record).await {
+        Ok(record) => return Ok(record),
+        Err(e) => {
+            tracing::error!("Failed to update record: {}", e);
+            return Err(e);
+        }
+    }
+}
+
+pub async fn delete_record(
+    zone_id: String,
+    record: DnsRecord,
+) -> Result<DnsRecord, Box<dyn std::error::Error>> {
+    match crate::libs::cf::delete_record(&get_api_client(), zone_id, record).await {
+        Ok(record) => return Ok(record),
+        Err(e) => {
+            tracing::error!("Failed to delete record: {}", e);
             return Err(e);
         }
     }
