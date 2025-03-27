@@ -1,13 +1,18 @@
 use cloudflare::framework::client::ClientConfig;
 use cloudflare::framework::client::async_api::Client as AsyncClient;
 use cloudflare::framework::{Environment, auth::Credentials};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 pub static API_CLIENT: OnceCell<AsyncClient> = OnceCell::new();
 
 pub fn get_api_client() -> &'static AsyncClient {
     API_CLIENT.get().unwrap()
 }
+
+static ZONE_ID_CACHE: Lazy<RwLock<HashMap<String, String>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct DnsRecord {
@@ -48,13 +53,26 @@ pub async fn init_cf(
 }
 
 pub async fn get_zone(zone_name: String) -> Result<String, Box<dyn std::error::Error>> {
-    match crate::libs::cf::get_zone(&get_api_client(), zone_name).await {
-        Ok(zone_id) => return Ok(zone_id),
+    // First: check if zone_id is cached
+    if let Some(cached) = ZONE_ID_CACHE.read().unwrap().get(&zone_name) {
+        return Ok(cached.clone());
+    }
+
+    // If not cached, fetch from Cloudflare
+    match crate::libs::cf::get_zone(&get_api_client(), zone_name.clone()).await {
+        Ok(zone_id) => {
+            // Save to cache
+            ZONE_ID_CACHE
+                .write()
+                .unwrap()
+                .insert(zone_name.clone(), zone_id.clone());
+            Ok(zone_id)
+        }
         Err(e) => {
             tracing::error!("Failed to get zone: {}", e);
-            return Err(e);
+            Err(e)
         }
-    };
+    }
 }
 
 pub async fn list_records(zone_id: String) -> Result<Vec<DnsRecord>, Box<dyn std::error::Error>> {
