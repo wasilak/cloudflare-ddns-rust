@@ -1,85 +1,175 @@
-use rand::Rng;
+use once_cell::sync::Lazy;
+use rand::prelude::IndexedRandom;
+use rand::rng;
+use std::sync::{Arc, RwLock};
 
-pub trait IPSource {
-    fn name(&self) -> &'static str;
-    fn url(&self) -> &str;
-    fn parse_response(&self, body: &str) -> Result<String, Box<dyn std::error::Error>>;
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct ApifyOrgResponse {
+#[derive(serde::Serialize, Clone)]
+pub struct IP {
     pub ip: String,
+    pub source: IPSource,
 }
 
-#[derive(Debug)]
-pub struct ApifyOrg;
-impl IPSource for ApifyOrg {
-    fn name(&self) -> &'static str {
-        "ApifyOrg"
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum IPSource {
+    ApifyOrg(ApifyOrg),
+    IpApi(IpApi),
+    IpinfoIo(IpinfoIo),
+    IdentMe(IdentMe),
+}
+
+impl IPSource {
+    pub fn name(&self) -> &str {
+        match self {
+            IPSource::ApifyOrg(s) => &s.name,
+            IPSource::IpApi(s) => &s.name,
+            IPSource::IpinfoIo(s) => &s.name,
+            IPSource::IdentMe(s) => &s.name,
+        }
     }
-    fn url(&self) -> &str {
-        "https://api.ipify.org?format=json"
+
+    pub fn url(&self) -> &str {
+        match self {
+            IPSource::ApifyOrg(s) => &s.url,
+            IPSource::IpApi(s) => &s.url,
+            IPSource::IpinfoIo(s) => &s.url,
+            IPSource::IdentMe(s) => &s.url,
+        }
     }
-    fn parse_response(&self, body: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let response: ApifyOrgResponse = serde_json::from_str(body)?;
-        Ok(response.ip)
+
+    pub async fn get() -> Result<IP, Box<dyn std::error::Error>> {
+        let sources = vec![
+            IPSource::ApifyOrg(ApifyOrg::new()),
+            IPSource::IpApi(IpApi::new()),
+            IPSource::IpinfoIo(IpinfoIo::new()),
+            IPSource::IdentMe(IdentMe::new()),
+        ];
+
+        let mut rng = rng();
+
+        let mut selected = sources
+            .choose(&mut rng)
+            .expect("No sources configured")
+            .clone();
+
+        let res = reqwest::get(selected.url()).await?.text().await?;
+
+        let ip = match &mut selected {
+            IPSource::ApifyOrg(_) => {
+                let parsed: IpFyResponse = serde_json::from_str(&res)?;
+                parsed.ip
+            }
+            IPSource::IpApi(_) => {
+                let parsed: IpApiResponse = serde_json::from_str(&res)?;
+                parsed.query
+            }
+            IPSource::IpinfoIo(_) => {
+                let parsed: IpinfoIoResponse = serde_json::from_str(&res)?;
+                parsed.ip
+            }
+            IPSource::IdentMe(_) => {
+                let parsed: IdentMeResponse = serde_json::from_str(&res)?;
+                parsed.address
+            }
+        };
+
+        Ok(IP {
+            ip,
+            source: selected,
+        })
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct IpinfoIoResponse {
-    pub ip: String,
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ApifyOrg {
+    pub name: String,
+    pub url: String,
 }
 
-#[derive(Debug)]
-pub struct IpinfoIo;
-impl IPSource for IpinfoIo {
-    fn name(&self) -> &'static str {
-        "IpinfoIo"
-    }
-    fn url(&self) -> &str {
-        "https://ipinfo.io/json"
-    }
-    fn parse_response(&self, body: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let response: IpinfoIoResponse = serde_json::from_str(body)?;
-        Ok(response.ip)
+impl ApifyOrg {
+    pub fn new() -> Self {
+        Self {
+            name: "IpifyOrg".to_string(),
+            url: "https://api.ipify.org?format=json".to_string(),
+        }
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct IdentMeResponse {
-    pub address: String,
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct IpApi {
+    pub name: String,
+    pub url: String,
 }
 
-#[derive(Debug)]
-pub struct IdentMe;
-impl IPSource for IdentMe {
-    fn name(&self) -> &'static str {
-        "IdentMe"
-    }
-    fn url(&self) -> &str {
-        "https://ident.me/.json"
-    }
-    fn parse_response(&self, body: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let response: IdentMeResponse = serde_json::from_str(body)?;
-        Ok(response.address)
+impl IpApi {
+    pub fn new() -> Self {
+        Self {
+            name: "IpApi".to_string(),
+            url: "http://ip-api.com/json/".to_string(),
+        }
     }
 }
 
-pub fn random_ip_source() -> Box<dyn IPSource + Send + Sync> {
-    match rand::rng().random_range(0..3) {
-        0 => Box::new(ApifyOrg),
-        1 => Box::new(IpinfoIo),
-        _ => Box::new(IdentMe),
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct IpinfoIo {
+    pub name: String,
+    pub url: String,
+}
+
+impl IpinfoIo {
+    pub fn new() -> Self {
+        Self {
+            name: "IpinfoIo".to_string(),
+            url: "https://ipinfo.io/json".to_string(),
+        }
     }
 }
 
-pub async fn get_ip()
--> Result<(String, Box<dyn IPSource + Send + Sync>), Box<dyn std::error::Error>> {
-    let random_source = random_ip_source();
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct IdentMe {
+    pub name: String,
+    pub url: String,
+}
 
-    let body = reqwest::get(random_source.url()).await?.text().await?;
-    let ip = random_source.parse_response(&body)?;
+impl IdentMe {
+    pub fn new() -> Self {
+        Self {
+            name: "IdentMe".to_string(),
+            url: "https://ident.me/.json".to_string(),
+        }
+    }
+}
 
-    Ok((ip, random_source))
+#[derive(serde::Deserialize)]
+struct IpFyResponse {
+    ip: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IpApiResponse {
+    query: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IpinfoIoResponse {
+    ip: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IdentMeResponse {
+    address: String,
+}
+
+pub static EXTERNAL_IP: Lazy<RwLock<Option<Arc<IP>>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn set_external_ip(ip: IP) {
+    let mut lock = EXTERNAL_IP.write().unwrap();
+    *lock = Some(Arc::new(ip));
+}
+
+pub fn get_external_ip() -> Option<IP> {
+    EXTERNAL_IP
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|ip| (**ip).clone())
 }
