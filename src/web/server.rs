@@ -9,7 +9,7 @@ use tracing::Level;
 pub struct Server {}
 
 impl Server {
-    pub async fn init() {
+    pub async fn init(bind: &String) {
         let app = Router::new().layer(TraceLayer::new_for_http());
 
         let app = app
@@ -24,7 +24,7 @@ impl Server {
                     .on_request(DefaultOnRequest::new().level(Level::INFO)), // .on_response(DefaultOnResponse::new().level(Level::INFO)),
             );
 
-        let listener = match tokio::net::TcpListener::bind("127.0.0.1:3000")
+        let listener = match tokio::net::TcpListener::bind(bind)
             .await
             .expect("failed to bind")
         {

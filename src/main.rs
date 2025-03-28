@@ -1,10 +1,39 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
+mod commands;
 mod libs;
 mod web;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
+#[command(name = "cf-dns-manager", version, about)]
+struct Cli {
+    #[clap(subcommand)]
+    command: Commands,
+
+    #[clap(flatten)]
+    options: Args,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Run with file-based configuration
+    File {
+        #[arg(short, long, default_value = "./config.yaml")]
+        config: String,
+
+        #[arg(short, long, default_value = "127.0.0.1:3000")]
+        bind: String,
+    },
+
+    /// Run in API mode (Kubernetes operator or controller)
+    Api {
+        #[arg(short, long, default_value = "127.0.0.1:3000")]
+        bind: String,
+    },
+}
+
+#[derive(Debug, Parser)]
 struct Args {
     /// Cloudflare API key
     #[arg(env = "CF_API_KEY")]
@@ -13,19 +42,15 @@ struct Args {
     /// Cloudflare API email
     #[arg(env = "CF_API_EMAIL")]
     cf_api_email: String,
-
-    /// webserver enabled
-    #[arg(short, long, default_value_t = false)]
-    web_server: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
     libs::logging::Logger::init();
 
-    match libs::api::init_cf(args.cf_api_email, args.cf_api_key).await {
+    match libs::api::init_cf(cli.options.cf_api_email, cli.options.cf_api_key).await {
         Ok(_) => {
             tracing::info!("Cloudflare API client initialized");
         }
@@ -42,8 +67,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::error!("Failed to get IP: {}", e),
     }
 
-    if args.web_server {
-        web::server::Server::init().await;
+    match cli.command {
+        Commands::File { config, bind } => {
+            commands::file::run(&config, &bind).await;
+        }
+        Commands::Api { bind } => {
+            commands::api::run(&bind).await;
+        }
     }
 
     Ok(())

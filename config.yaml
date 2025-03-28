@@ -1,0 +1,10 @@
+records:
+  otteryak.foo:
+    - name: test1.otteryak.foo
+      type: A
+      ttl: 120
+      proxied: true
+    - name: test2.otteryak.foo
+      type: A
+      ttl: 120
+      proxied: false

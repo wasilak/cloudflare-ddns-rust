@@ -30,19 +30,7 @@ pub async fn root_handler() -> Json<ResponseRoot> {
 pub async fn get_record_handler(
     Path((zone_name, record)): Path<(String, String)>,
 ) -> Json<Response> {
-    let zone_id = match crate::libs::api::get_zone(zone_name).await {
-        Ok(zone_id) => Some(zone_id),
-        Err(e) => {
-            tracing::error!("Failed to get zone: {}", e);
-            return Json(Response {
-                ip: None,
-                records: None,
-                error: Some(e.to_string()),
-            });
-        }
-    };
-
-    let record = match crate::libs::api::get_record(zone_id.unwrap(), record).await {
+    let record = match crate::libs::api::get_record(&zone_name, &record).await {
         Ok(record) => record,
         Err(e) => {
             tracing::error!("Failed to get record: {}", e);
@@ -72,24 +60,6 @@ pub async fn upsert_record_handler(
 ) -> Json<Response> {
     tracing::info!("POST payload: {:#?}", payload);
 
-    // Get the zone ID
-    let zone_id = match crate::libs::api::get_zone(zone_name.clone()).await {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("Failed to get zone: {}", e);
-            return Json(Response {
-                ip: None,
-                records: None,
-                error: Some(format!("Zone not found: {}", e)),
-            });
-        }
-    };
-
-    // Check if the record exists
-    let maybe_record = crate::libs::api::get_record(zone_id.clone(), record.clone())
-        .await
-        .ok();
-
     // Get current external IP
     let ip = match crate::libs::ip::get_external_ip() {
         Some(ip) => ip,
@@ -102,54 +72,30 @@ pub async fn upsert_record_handler(
         }
     };
 
-    let mut records = Vec::new();
-
+    // Prepare payload
     payload.name = Some(record.clone());
     payload.content = Some(ip.ip.clone());
 
-    if let Some(mut existing) = maybe_record {
-        tracing::info!("Record exists, updating");
+    // Perform upsert using your unified logic
+    let result = crate::libs::api::upsert_record(&zone_name, payload).await;
 
-        // You could diff/merge here if needed
-        existing.content = payload.content.clone();
-        existing.ttl = payload.ttl;
-        existing.proxied = payload.proxied;
-
-        let record = crate::libs::api::update_record(zone_id, existing.clone())
-            .await
-            .unwrap();
-        records.push(record);
-    } else {
-        tracing::info!("Record does not exist, creating");
-
-        let record = crate::libs::api::create_record(zone_id, payload.clone())
-            .await
-            .unwrap();
-        records.push(record);
+    match result {
+        Ok(updated) => Json(Response {
+            ip: Some(ip),
+            records: Some(vec![updated]),
+            error: None,
+        }),
+        Err(e) => Json(Response {
+            ip: Some(ip),
+            records: None,
+            error: Some(format!("Upsert failed: {}", e)),
+        }),
     }
-
-    Json(Response {
-        ip: Some(ip),
-        records: Some(records),
-        error: None,
-    })
 }
 
 #[axum::debug_handler]
 pub async fn list_handler(Path(zone_name): Path<String>) -> Json<Response> {
-    let zone_id = match crate::libs::api::get_zone(zone_name).await {
-        Ok(zone_id) => Some(zone_id),
-        Err(e) => {
-            tracing::error!("Failed to get zone: {}", e);
-            return Json(Response {
-                ip: None,
-                records: None,
-                error: Some(e.to_string()),
-            });
-        }
-    };
-
-    let records = match crate::libs::api::list_records(zone_id.clone().unwrap()).await {
+    let records = match crate::libs::api::list_records(&zone_name).await {
         Ok(records) => records,
         Err(e) => {
             tracing::error!("Failed to get records: {}", e);
@@ -176,33 +122,9 @@ pub async fn list_handler(Path(zone_name): Path<String>) -> Json<Response> {
 pub async fn delete_record_handler(
     Path((zone_name, record)): Path<(String, String)>,
 ) -> Json<Response> {
-    let zone_id = match crate::libs::api::get_zone(zone_name).await {
-        Ok(zone_id) => Some(zone_id),
-        Err(e) => {
-            tracing::error!("Failed to get zone: {}", e);
-            return Json(Response {
-                ip: None,
-                records: None,
-                error: Some(e.to_string()),
-            });
-        }
-    };
-
-    let record = match crate::libs::api::get_record(zone_id.clone().unwrap(), record).await {
-        Ok(record) => record,
-        Err(e) => {
-            tracing::error!("Failed to get record: {}", e);
-            return Json(Response {
-                ip: None,
-                records: None,
-                error: Some(e.to_string()),
-            });
-        }
-    };
-
     let ip = crate::libs::ip::get_external_ip().unwrap();
 
-    let record = match crate::libs::api::delete_record(zone_id.unwrap(), record).await {
+    let record = match crate::libs::api::delete_record(&zone_name, &record).await {
         Ok(record) => record,
         Err(e) => {
             tracing::error!("Failed to delete record: {}", e);

@@ -1,9 +1,8 @@
-use std::vec;
-
 use cloudflare::endpoints::dns::dns::{self};
 use cloudflare::endpoints::zones::zone;
+// use cloudflare::framework::OrderDirection;
 use cloudflare::framework::client::async_api::Client as AsyncClient;
-use cloudflare::framework::{OrderDirection, response::ApiFailure};
+use cloudflare::framework::response::ApiFailure;
 
 fn map_cloudflare_error(e: ApiFailure) -> Box<dyn std::error::Error> {
     match e {
@@ -59,40 +58,41 @@ pub async fn get_zone(
     }
 }
 
-pub async fn list_records(
-    api_client: &AsyncClient,
-    zone_id: String,
-) -> Result<Vec<crate::libs::api::DnsRecord>, Box<dyn std::error::Error>> {
-    let endpoint = dns::ListDnsRecords {
-        zone_identifier: &zone_id,
-        params: dns::ListDnsRecordsParams {
-            direction: Some(OrderDirection::Ascending),
-            ..Default::default()
-        },
-    };
+// pub async fn list_records(
+//     api_client: &AsyncClient,
+//     zone_id: String,
+// ) -> Result<Vec<crate::libs::api::DnsRecord>, Box<dyn std::error::Error>> {
+//     let endpoint = dns::ListDnsRecords {
+//         zone_identifier: &zone_id,
+//         params: dns::ListDnsRecordsParams {
+//             direction: Some(OrderDirection::Ascending),
+//             ..Default::default()
+//         },
+//     };
 
-    match api_client.request(&endpoint).await {
-        Ok(success) => {
-            let mut records: Vec<crate::libs::api::DnsRecord> = vec![];
-            success.result.iter().for_each(|record| {
-                match record.content {
-                    cloudflare::endpoints::dns::dns::DnsContent::A { content } => {
-                        records.push(crate::libs::api::DnsRecord {
-                            id: Some(record.id.clone()),
-                            name: Some(record.name.clone()),
-                            content: Some(content.to_string()),
-                            ttl: Some(record.ttl),
-                            proxied: Some(record.proxied),
-                        });
-                    }
-                    _ => (),
-                };
-            });
-            return Ok(records);
-        }
-        Err(e) => Err(map_cloudflare_error(e)),
-    }
-}
+//     match api_client.request(&endpoint).await {
+//         Ok(success) => {
+//             let mut records: Vec<crate::libs::api::DnsRecord> = vec![];
+//             success.result.iter().for_each(|record| {
+//                 match record.content {
+//                     cloudflare::endpoints::dns::dns::DnsContent::A { content } => {
+//                         records.push(crate::libs::api::DnsRecord {
+//                             id: Some(record.id.clone()),
+//                             name: Some(record.name.clone()),
+//                             content: Some(content.to_string()),
+//                             ttl: Some(record.ttl),
+//                             proxied: Some(record.proxied),
+//                             record_type: Some("A".to_string()),
+//                         });
+//                     }
+//                     _ => (),
+//                 };
+//             });
+//             return Ok(records);
+//         }
+//         Err(e) => Err(map_cloudflare_error(e)),
+//     }
+// }
 
 pub async fn create_record(
     api_client: &AsyncClient,
@@ -125,6 +125,7 @@ pub async fn create_record(
                     content: Some(content_str),
                     ttl: Some(success.result.ttl),
                     proxied: Some(success.result.proxied),
+                    record_type: Some("A".to_string()),
                 })
             };
         }
@@ -163,6 +164,7 @@ pub async fn update_record(
                     content: Some(content_str),
                     ttl: Some(success.result.ttl),
                     proxied: Some(success.result.proxied),
+                    record_type: Some("A".to_string()),
                 })
             };
         }

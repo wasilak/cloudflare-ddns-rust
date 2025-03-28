@@ -30,6 +30,9 @@ pub struct DnsRecord {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxied: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_type: Option<String>,
 }
 
 pub async fn init_cf(
@@ -52,9 +55,9 @@ pub async fn init_cf(
     Ok(())
 }
 
-pub async fn get_zone(zone_name: String) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn get_zone(zone_name: &String) -> Result<String, Box<dyn std::error::Error>> {
     // First: check if zone_id is cached
-    if let Some(cached) = ZONE_ID_CACHE.read().unwrap().get(&zone_name) {
+    if let Some(cached) = ZONE_ID_CACHE.read().unwrap().get(zone_name) {
         return Ok(cached.clone());
     }
 
@@ -75,72 +78,104 @@ pub async fn get_zone(zone_name: String) -> Result<String, Box<dyn std::error::E
     }
 }
 
-pub async fn list_records(zone_id: String) -> Result<Vec<DnsRecord>, Box<dyn std::error::Error>> {
-    match crate::libs::cf::list_records(&get_api_client(), zone_id).await {
-        Ok(records) => return Ok(records),
-        Err(e) => {
-            tracing::error!("Failed to list records: {}", e);
-            return Err(e);
-        }
+pub async fn list_records(
+    zone_name: &String,
+) -> Result<Vec<DnsRecord>, Box<dyn std::error::Error>> {
+    let config = crate::libs::config::CONFIG.read().unwrap();
+
+    match config.get_zone_records(&zone_name) {
+        Some(records) => Ok(records.clone()),
+        None => Err(format!("No records found for zone {}", zone_name).into()),
     }
 }
 
 pub async fn get_record(
-    zone_id: String,
-    record: String,
+    zone_name: &String,
+    record: &String,
 ) -> Result<DnsRecord, Box<dyn std::error::Error>> {
-    match crate::libs::cf::list_records(&get_api_client(), zone_id).await {
-        Ok(records) => {
-            return {
-                let record = records.iter().find(|r| r.name == Some(record.clone()));
-                match record {
-                    Some(record) => Ok(record.clone()),
-                    None => Err("Record not found".into()),
-                }
-            };
-        }
-        Err(e) => {
-            tracing::error!("Failed to list records: {}", e);
-            return Err(e);
-        }
+    let config = crate::libs::config::CONFIG.read().unwrap();
+
+    match config.get_zone_record(&zone_name, &record) {
+        Some(records) => Ok(records.clone()),
+        None => Err(format!("Record {} not found in zone {}", record, zone_name).into()),
     }
 }
 
-pub async fn create_record(
-    zone_id: String,
+pub async fn upsert_record(
+    zone_name: &String,
     record: DnsRecord,
 ) -> Result<DnsRecord, Box<dyn std::error::Error>> {
-    match crate::libs::cf::create_record(&get_api_client(), zone_id, record).await {
-        Ok(record) => return Ok(record),
+    let zone_id = match crate::libs::api::get_zone(zone_name).await {
+        Ok(zone_id) => zone_id,
         Err(e) => {
-            tracing::error!("Failed to create record: {}", e);
+            tracing::error!("Failed to get zone: {}", e);
             return Err(e);
         }
-    }
-}
+    };
 
-pub async fn update_record(
-    zone_id: String,
-    record: DnsRecord,
-) -> Result<DnsRecord, Box<dyn std::error::Error>> {
-    match crate::libs::cf::update_record(&get_api_client(), zone_id, record).await {
-        Ok(record) => return Ok(record),
+    let exists = {
+        let config = crate::libs::config::CONFIG.read().unwrap();
+        config
+            .get_zone_record(zone_name, &record.clone().name.unwrap())
+            .is_some()
+    };
+
+    let result = if exists {
+        crate::libs::cf::update_record(&get_api_client(), zone_id, record).await
+    } else {
+        crate::libs::cf::create_record(&get_api_client(), zone_id, record).await
+    };
+
+    let record = match result {
+        Ok(record) => record,
         Err(e) => {
-            tracing::error!("Failed to update record: {}", e);
+            tracing::error!(
+                "Failed to {} record: {}",
+                if exists { "update" } else { "create" },
+                e
+            );
             return Err(e);
         }
+    };
+
+    let mut config = crate::libs::config::CONFIG.write().unwrap();
+    match config.upsert_zone_record(zone_name, record.clone()) {
+        Ok(_) => Ok(record),
+        Err(e) => Err(e),
     }
 }
 
 pub async fn delete_record(
-    zone_id: String,
-    record: DnsRecord,
+    zone_name: &String,
+    record: &String,
 ) -> Result<DnsRecord, Box<dyn std::error::Error>> {
-    match crate::libs::cf::delete_record(&get_api_client(), zone_id, record).await {
-        Ok(record) => return Ok(record),
+    let zone_id = match crate::libs::api::get_zone(zone_name).await {
+        Ok(zone_id) => zone_id.clone(),
+        Err(e) => {
+            tracing::error!("Failed to get zone: {}", e);
+            return Err(e);
+        }
+    };
+
+    let record = match get_record(&zone_name, record).await {
+        Ok(record) => record,
+        Err(e) => {
+            tracing::error!("Failed to get record: {}", e);
+            return Err(e);
+        }
+    };
+
+    let record = match crate::libs::cf::delete_record(&get_api_client(), zone_id, record).await {
+        Ok(record) => record,
         Err(e) => {
             tracing::error!("Failed to delete record: {}", e);
             return Err(e);
         }
+    };
+
+    let mut config = crate::libs::config::CONFIG.write().unwrap();
+    match config.delete_zone_record(zone_name, &record.clone().name.unwrap()) {
+        Ok(_) => Ok(record),
+        Err(e) => Err(e),
     }
 }
