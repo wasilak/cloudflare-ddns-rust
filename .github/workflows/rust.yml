@@ -34,11 +34,6 @@ jobs:
             runs-on: ubuntu-latest
             target: aarch64-unknown-linux-musl
 
-          # takes forever to build
-          # - os-name: Windows-x86_64
-          #   runs-on: windows-latest
-          #   target: x86_64-pc-windows-msvc
-
           - os-name: macOS-x86_64
             runs-on: macos-latest
             target: x86_64-apple-darwin
@@ -50,31 +45,42 @@ jobs:
     runs-on: ${{ matrix.platform.runs-on }}
 
     steps:
-      - name: Install dependencies (Linux Only)
-        if: contains(matrix.platform.target, 'linux')
-        run: sudo apt update && sudo apt install -y pkg-config libssl-dev
-
-      - name: Set environment variables for OpenSSL (Linux Only)
-        if: contains(matrix.platform.target, 'linux')
-        run: |
-          echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: houseabsolute/actions-rust-cross@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.platform.target }}
+          targets: ${{ matrix.platform.target }}
 
-      - name: Build binary (Cross-Compile)
-        uses: houseabsolute/actions-rust-cross@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: "--locked --release"
-          strip: true # Reduce binary size
+      - name: Install Cross (for Linux cross-compile)
+        if: contains(matrix.platform.target, 'musl') && matrix.platform.target != 'x86_64-unknown-linux-musl'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build binary (Native Linux)
+        if: matrix.platform.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt update && sudo apt install -y pkg-config libssl-dev musl-tools
+          export OPENSSL_STATIC=1
+          cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Build binary (Cross Linux aarch64 using cross)
+        if: matrix.platform.target == 'aarch64-unknown-linux-musl'
+        run: cross build --release --target aarch64-unknown-linux-musl
+
+      - name: Build binary (macOS)
+        if: contains(matrix.platform.target, 'apple-darwin')
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Strip binary
+        run: |
+          strip_target=""
+          if [[ "${{ matrix.platform.target }}" == *"apple"* ]]; then
+            strip_target="target/${{ matrix.platform.target }}/release/cloudflare-ddns"
+          else
+            strip_target="target/${{ matrix.platform.target }}/release/cloudflare-ddns"
+          fi
+          strip "$strip_target"
 
       - name: Publish Artifacts and Release
         uses: houseabsolute/actions-rust-release@v0
