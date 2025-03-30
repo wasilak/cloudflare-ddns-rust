@@ -52,7 +52,7 @@ jobs:
     steps:
       - name: Install dependencies (Linux Only)
         if: contains(matrix.platform.target, 'linux')
-        run: sudo apt update && sudo apt install -y libssl-dev
+        run: sudo apt update && sudo apt install -y pkg-config libssl-dev
 
       - name: Set environment variables for OpenSSL (Linux Only)
         if: contains(matrix.platform.target, 'linux')
