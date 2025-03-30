@@ -24,12 +24,18 @@ enum Commands {
 
         #[arg(short, long, default_value = "127.0.0.1:3000")]
         bind: String,
+
+        #[arg(short, long, default_value = "60")]
+        refresh_interval: u64,
     },
 
     /// Run in API mode (Kubernetes operator or controller)
     Api {
         #[arg(short, long, default_value = "127.0.0.1:3000")]
         bind: String,
+
+        #[arg(short, long, default_value = "60")]
+        refresh_interval: u64,
     },
 }
 
@@ -68,11 +74,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match cli.command {
-        Commands::File { config, bind } => {
-            commands::file::run(&config, &bind).await;
+        Commands::File {
+            config,
+            bind,
+            refresh_interval,
+        } => {
+            commands::file::run(&config, &bind, refresh_interval).await;
         }
-        Commands::Api { bind } => {
-            commands::api::run(&bind).await;
+        Commands::Api {
+            bind,
+            refresh_interval,
+        } => {
+            commands::api::run(&bind, refresh_interval).await;
         }
     }
 
