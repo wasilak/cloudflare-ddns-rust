@@ -14,8 +14,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # ✅ Allows release creation
-  packages: write  # ✅ (Optional) Needed for publishing Rust crates
+  contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,66 +26,45 @@ jobs:
     strategy:
       matrix:
         platform:
+          # - os-name: FreeBSD-x86_64
+          #   runs-on: ubuntu-24.latest
+          #   target: x86_64-unknown-freebsd
+
           - os-name: Linux-x86_64
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.latest
             target: x86_64-unknown-linux-musl
 
           - os-name: Linux-aarch64
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.latest
             target: aarch64-unknown-linux-musl
 
+          - os-name: Linux-riscv64
+            runs-on: ubuntu-24.latest
+            target: riscv64gc-unknown-linux-gnu
+
+          # - os-name: Windows-x86_64
+          #   runs-on: windows-latest
+          #   target: x86_64-pc-windows-msvc
+
           - os-name: macOS-x86_64
-            runs-on: macos-latest
+            runs-on: macOS-latest
             target: x86_64-apple-darwin
 
-          - os-name: macOS-aarch64
-            runs-on: macos-latest
-            target: aarch64-apple-darwin
-
     runs-on: ${{ matrix.platform.runs-on }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v1
         with:
-          targets: ${{ matrix.platform.target }}
-
-      - name: Install Cross (for Linux cross-compile)
-        if: contains(matrix.platform.target, 'musl') && matrix.platform.target != 'x86_64-unknown-linux-musl'
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build binary (Native Linux)
-        if: matrix.platform.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt update && sudo apt install -y pkg-config libssl-dev musl-tools
-          export OPENSSL_STATIC=1
-          cargo build --release --target x86_64-unknown-linux-musl
-
-      - name: Build binary (Cross Linux aarch64 using cross)
-        if: matrix.platform.target == 'aarch64-unknown-linux-musl'
-        run: cross build --release --target aarch64-unknown-linux-musl
-
-      - name: Build binary (macOS)
-        if: contains(matrix.platform.target, 'apple-darwin')
-        run: cargo build --release --target ${{ matrix.platform.target }}
-
-      - name: Strip binary
-        run: |
-          strip_target=""
-          if [[ "${{ matrix.platform.target }}" == *"apple"* ]]; then
-            strip_target="target/${{ matrix.platform.target }}/release/cloudflare-ddns"
-          else
-            strip_target="target/${{ matrix.platform.target }}/release/cloudflare-ddns"
-          fi
-          strip "$strip_target"
-
-      - name: Publish Artifacts and Release
-        uses: houseabsolute/actions-rust-release@v0
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          executable-name: cloudflare-ddns
+          command: ${{ matrix.platform.command }}
           target: ${{ matrix.platform.target }}
-          changes-file: ""
+          args: "--locked --release"
+          strip: true
+
+      - name: Publish artifacts and release
+        uses: houseabsolute/actions-rust-release@v0
+        with:
+          executable-name: ubi
+          target: ${{ matrix.platform.target }}
