@@ -38,9 +38,9 @@ jobs:
             runs-on: ubuntu-24.latest
             target: aarch64-unknown-linux-musl
 
-          - os-name: Linux-riscv64
-            runs-on: ubuntu-24.latest
-            target: riscv64gc-unknown-linux-gnu
+          # - os-name: Linux-riscv64
+          #   runs-on: ubuntu-24.latest
+          #   target: riscv64gc-unknown-linux-gnu
 
           # - os-name: Windows-x86_64
           #   runs-on: windows-latest
