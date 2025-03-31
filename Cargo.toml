@@ -22,3 +22,4 @@ cloudflare = { version = "~0" }
 clap = { version = "~4", features = ["derive", "env"] }
 once_cell = { version = "~1" }
 serde_yaml = { version = "~0" }
+openssl = { version = "~0", features = ["vendored"] }
